@@ -9,14 +9,12 @@ import Jasmine from 'jasmine'
 const jasmine = new Jasmine()
 
 jasmine.loadConfig({
-  "spec_dir": "spec/",
-  "spec_files": [
-    "spec/types/*.js",
-    "spec/utils/*.js",
-    "spec/elements/*.js"
+  spec_dir: '/',
+  spec_files: [
+    'spec/spec/*/**/*.js'
   ],
-  "helpers": [
-    "setupSVGDom.js"
+  helpers: [
+    'spec/setupSVGDom.js'
   ]
 })
 

@@ -6,15 +6,10 @@ import {
   numbersWithDots,
   pathLetters
 } from '../modules/core/regex.js'
-import { extend } from '../utils/adopter.js'
-import { subClassArray } from './ArrayPolyfill.js'
 import Point from './Point.js'
 import SVGArray from './SVGArray.js'
 import parser from '../modules/core/parser.js'
-
-const PathArray = subClassArray('PathArray', SVGArray)
-
-export default PathArray
+import Box from './Box.js'
 
 export function pathRegReplace (a, b, c, d) {
   return c + d.replace(dots, ' .')
@@ -129,11 +124,12 @@ for (var i = 0, il = mlhvqtcsaz.length; i < il; ++i) {
   })(mlhvqtcsaz[i].toUpperCase())
 }
 
-extend(PathArray, {
-  // Convert array to string
-  toString () {
-    return arrayToString(this)
-  },
+export default class PathArray extends SVGArray {
+  // Get bounding box of path
+  bbox () {
+    parser().path.setAttribute('d', this.toString())
+    return new Box(parser.nodes.path.getBBox())
+  }
 
   // Move path string
   move (x, y) {
@@ -174,7 +170,54 @@ extend(PathArray, {
     }
 
     return this
-  },
+  }
+
+  // Absolutize and parse path to array
+  parse (array = [ 'M', 0, 0 ]) {
+    // prepare for parsing
+    var s
+    var paramCnt = { M: 2, L: 2, H: 1, V: 1, C: 6, S: 4, Q: 4, T: 2, A: 7, Z: 0 }
+
+    if (typeof array === 'string') {
+      array = array
+        .replace(numbersWithDots, pathRegReplace) // convert 45.123.123 to 45.123 .123
+        .replace(pathLetters, ' $& ') // put some room between letters and numbers
+        .replace(hyphen, '$1 -') // add space before hyphen
+        .trim() // trim
+        .split(delimiter) // split into array
+    } else {
+      // Flatten array
+      array = Array.prototype.concat.apply([], array)
+    }
+
+    // array now is an array containing all parts of a path e.g. ['M', '0', '0', 'L', '30', '30' ...]
+    var result = []
+    var p = new Point()
+    var p0 = new Point()
+    var index = 0
+    var len = array.length
+
+    do {
+      // Test if we have a path letter
+      if (isPathLetter.test(array[index])) {
+        s = array[index]
+        ++index
+        // If last letter was a move command and we got no new, it defaults to [L]ine
+      } else if (s === 'M') {
+        s = 'L'
+      } else if (s === 'm') {
+        s = 'l'
+      }
+
+      result.push(pathHandlers[s].call(null,
+        array.slice(index, (index = index + paramCnt[s.toUpperCase()])).map(parseFloat),
+        p, p0
+      )
+      )
+    } while (len > index)
+
+    return result
+  }
 
   // Resize path string
   size (width, height) {
@@ -220,123 +263,11 @@ extend(PathArray, {
     }
 
     return this
-  },
-
-  // Test if the passed path array use the same path data commands as this path array
-  equalCommands (pathArray) {
-    var i, il, equalCommands
-
-    pathArray = new PathArray(pathArray)
-
-    equalCommands = this.length === pathArray.length
-    for (i = 0, il = this.length; equalCommands && i < il; i++) {
-      equalCommands = this[i][0] === pathArray[i][0]
-    }
-
-    return equalCommands
-  },
-
-  // Make path array morphable
-  morph (pathArray) {
-    pathArray = new PathArray(pathArray)
-
-    if (this.equalCommands(pathArray)) {
-      this.destination = pathArray
-    } else {
-      this.destination = null
-    }
-
-    return this
-  },
-
-  // Get morphed path array at given position
-  at (pos) {
-    // make sure a destination is defined
-    if (!this.destination) return this
-
-    var sourceArray = this
-    var destinationArray = this.destination.value
-    var array = []
-    var pathArray = new PathArray()
-    var i, il, j, jl
-
-    // Animate has specified in the SVG spec
-    // See: https://www.w3.org/TR/SVG11/paths.html#PathElement
-    for (i = 0, il = sourceArray.length; i < il; i++) {
-      array[i] = [ sourceArray[i][0] ]
-      for (j = 1, jl = sourceArray[i].length; j < jl; j++) {
-        array[i][j] = sourceArray[i][j] + (destinationArray[i][j] - sourceArray[i][j]) * pos
-      }
-      // For the two flags of the elliptical arc command, the SVG spec say:
-      // Flags and booleans are interpolated as fractions between zero and one, with any non-zero value considered to be a value of one/true
-      // Elliptical arc command as an array followed by corresponding indexes:
-      // ['A', rx, ry, x-axis-rotation, large-arc-flag, sweep-flag, x, y]
-      //   0    1   2        3                 4             5      6  7
-      if (array[i][0] === 'A') {
-        array[i][4] = +(array[i][4] !== 0)
-        array[i][5] = +(array[i][5] !== 0)
-      }
-    }
-
-    // Directly modify the value of a path array, this is done this way for performance
-    pathArray.value = array
-    return pathArray
-  },
-
-  // Absolutize and parse path to array
-  parse (array = [ [ 'M', 0, 0 ] ]) {
-    // if it's already a patharray, no need to parse it
-    if (array instanceof PathArray) return array
-
-    // prepare for parsing
-    var s
-    var paramCnt = { M: 2, L: 2, H: 1, V: 1, C: 6, S: 4, Q: 4, T: 2, A: 7, Z: 0 }
-
-    if (typeof array === 'string') {
-      array = array
-        .replace(numbersWithDots, pathRegReplace) // convert 45.123.123 to 45.123 .123
-        .replace(pathLetters, ' $& ') // put some room between letters and numbers
-        .replace(hyphen, '$1 -') // add space before hyphen
-        .trim() // trim
-        .split(delimiter) // split into array
-    } else {
-      array = array.reduce(function (prev, curr) {
-        return [].concat.call(prev, curr)
-      }, [])
-    }
-
-    // array now is an array containing all parts of a path e.g. ['M', '0', '0', 'L', '30', '30' ...]
-    var result = []
-    var p = new Point()
-    var p0 = new Point()
-    var index = 0
-    var len = array.length
-
-    do {
-      // Test if we have a path letter
-      if (isPathLetter.test(array[index])) {
-        s = array[index]
-        ++index
-        // If last letter was a move command and we got no new, it defaults to [L]ine
-      } else if (s === 'M') {
-        s = 'L'
-      } else if (s === 'm') {
-        s = 'l'
-      }
-
-      result.push(pathHandlers[s].call(null,
-        array.slice(index, (index = index + paramCnt[s.toUpperCase()])).map(parseFloat),
-        p, p0
-      )
-      )
-    } while (len > index)
-
-    return result
-  },
-
-  // Get bounding box of path
-  bbox () {
-    parser().path.setAttribute('d', this.toString())
-    return parser.nodes.path.getBBox()
   }
-})
+
+  // Convert array to string
+  toString () {
+    return arrayToString(this)
+  }
+
+}

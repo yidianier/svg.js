@@ -4,13 +4,8 @@ import Container from './Container.js'
 
 export default class Marker extends Container {
   // Initialize node
-  constructor (node) {
-    super(nodeOrNew('marker', node), node)
-  }
-
-  // Set width of element
-  width (width) {
-    return this.attr('markerWidth', width)
+  constructor (node, attrs = node) {
+    super(nodeOrNew('marker', node), attrs)
   }
 
   // Set height of element
@@ -18,9 +13,18 @@ export default class Marker extends Container {
     return this.attr('markerHeight', height)
   }
 
+  orient (orient) {
+    return this.attr('orient', orient)
+  }
+
   // Set marker refX and refY
   ref (x, y) {
     return this.attr('refX', x).attr('refY', y)
+  }
+
+  // Return the fill id
+  toString () {
+    return 'url(#' + this.id() + ')'
   }
 
   // Update marker
@@ -36,10 +40,11 @@ export default class Marker extends Container {
     return this
   }
 
-  // Return the fill id
-  toString () {
-    return 'url(#' + this.id() + ')'
+  // Set width of element
+  width (width) {
+    return this.attr('markerWidth', width)
   }
+
 }
 
 registerMethods({

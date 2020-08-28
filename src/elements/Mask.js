@@ -5,8 +5,8 @@ import baseFind from '../modules/core/selector.js'
 
 export default class Mask extends Container {
   // Initialize node
-  constructor (node) {
-    super(nodeOrNew('mask', node), node)
+  constructor (node, attrs = node) {
+    super(nodeOrNew('mask', node), attrs)
   }
 
   // Unmask all masked elements and remove itself
@@ -33,6 +33,10 @@ registerMethods({
   },
   Element: {
     // Distribute mask to svg element
+    masker () {
+      return this.reference('mask')
+    },
+
     maskWith (element) {
       // use given mask or create a new one
       var masker = element instanceof Mask
@@ -46,10 +50,6 @@ registerMethods({
     // Unmask element
     unmask () {
       return this.attr('mask', null)
-    },
-
-    masker () {
-      return this.reference('mask')
     }
   }
 })

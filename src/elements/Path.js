@@ -3,23 +3,16 @@ import { proportionalSize } from '../utils/utils.js'
 import { registerMethods } from '../utils/methods.js'
 import PathArray from '../types/PathArray.js'
 import Shape from './Shape.js'
-import baseFind from '../modules/core/selector.js'
 
 export default class Path extends Shape {
   // Initialize node
-  constructor (node) {
-    super(nodeOrNew('path', node), node)
+  constructor (node, attrs = node) {
+    super(nodeOrNew('path', node), attrs)
   }
 
   // Get array
   array () {
     return this._array || (this._array = new PathArray(this.attr('d')))
-  }
-
-  // Plot new path
-  plot (d) {
-    return (d == null) ? this.array()
-      : this.clear().attr('d', typeof d === 'string' ? d : (this._array = new PathArray(d)))
   }
 
   // Clear array cache
@@ -28,19 +21,20 @@ export default class Path extends Shape {
     return this
   }
 
+  // Set height of element
+  height (height) {
+    return height == null ? this.bbox().height : this.size(this.bbox().width, height)
+  }
+
   // Move by left top corner
   move (x, y) {
     return this.attr('d', this.array().move(x, y))
   }
 
-  // Move by left top corner over x-axis
-  x (x) {
-    return x == null ? this.bbox().x : this.move(x, this.bbox().y)
-  }
-
-  // Move by left top corner over y-axis
-  y (y) {
-    return y == null ? this.bbox().y : this.move(this.bbox().x, y)
+  // Plot new path
+  plot (d) {
+    return (d == null) ? this.array()
+      : this.clear().attr('d', typeof d === 'string' ? d : (this._array = new PathArray(d)))
   }
 
   // Set element size to given width and height
@@ -54,14 +48,16 @@ export default class Path extends Shape {
     return width == null ? this.bbox().width : this.size(width, this.bbox().height)
   }
 
-  // Set height of element
-  height (height) {
-    return height == null ? this.bbox().height : this.size(this.bbox().width, height)
+  // Move by left top corner over x-axis
+  x (x) {
+    return x == null ? this.bbox().x : this.move(x, this.bbox().y)
   }
 
-  targets () {
-    return baseFind('svg textpath [href*="' + this.id() + '"]')
+  // Move by left top corner over y-axis
+  y (y) {
+    return y == null ? this.bbox().y : this.move(this.bbox().x, y)
   }
+
 }
 
 // Define morphable array

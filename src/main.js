@@ -10,7 +10,6 @@ import './modules/optional/transform.js'
 import { extend, makeInstance } from './utils/adopter.js'
 import { getMethodNames, getMethodsFor } from './utils/methods.js'
 import Box from './types/Box.js'
-import Circle from './elements/Circle.js'
 import Color from './types/Color.js'
 import Container from './elements/Container.js'
 import Defs from './elements/Defs.js'
@@ -18,6 +17,7 @@ import Dom from './elements/Dom.js'
 import Element from './elements/Element.js'
 import Ellipse from './elements/Ellipse.js'
 import EventTarget from './types/EventTarget.js'
+import Fragment from './elements/Fragment.js'
 import Gradient from './elements/Gradient.js'
 import Image from './elements/Image.js'
 import Line from './elements/Line.js'
@@ -66,7 +66,13 @@ export { default as parser } from './modules/core/parser.js'
 export { default as find } from './modules/core/selector.js'
 export * from './modules/core/event.js'
 export * from './utils/adopter.js'
-export { registerWindow } from './utils/window.js'
+export {
+  getWindow,
+  registerWindow,
+  restoreWindow,
+  saveWindow,
+  withWindow
+} from './utils/window.js'
 
 /* Animation Modules */
 export { default as Animator } from './animation/Animator.js'
@@ -96,6 +102,7 @@ export { default as Dom } from './elements/Dom.js'
 export { default as Element } from './elements/Element.js'
 export { default as Ellipse } from './elements/Ellipse.js'
 export { default as ForeignObject } from './elements/ForeignObject.js'
+export { default as Fragment } from './elements/Fragment.js'
 export { default as Gradient } from './elements/Gradient.js'
 export { default as G } from './elements/G.js'
 export { default as A } from './elements/A.js'
@@ -146,16 +153,16 @@ extend([
 extend([
   Rect,
   Ellipse,
-  Circle,
-  Gradient
+  Gradient,
+  Runner
 ], getMethodsFor('radius'))
 
 extend(EventTarget, getMethodsFor('EventTarget'))
 extend(Dom, getMethodsFor('Dom'))
 extend(Element, getMethodsFor('Element'))
 extend(Shape, getMethodsFor('Shape'))
-// extend(Element, getConstructor('Memory'))
-extend(Container, getMethodsFor('Container'))
+extend([ Container, Fragment ], getMethodsFor('Container'))
+extend(Gradient, getMethodsFor('Gradient'))
 
 extend(Runner, getMethodsFor('Runner'))
 

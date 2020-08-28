@@ -9,7 +9,7 @@ import Animator from './Animator.js'
 import Box from '../types/Box.js'
 import EventTarget from '../types/EventTarget.js'
 import Matrix from '../types/Matrix.js'
-import Morphable, { TransformBag } from './Morphable.js'
+import Morphable, { TransformBag, ObjectBag } from './Morphable.js'
 import Point from '../types/Point.js'
 import SVGNumber from '../types/SVGNumber.js'
 import Timeline from './Timeline.js'
@@ -71,6 +71,93 @@ export default class Runner extends EventTarget {
     this._persist = this._isDeclarative ? true : null
   }
 
+  static sanitise (duration, delay, when) {
+    // Initialise the default parameters
+    var times = 1
+    var swing = false
+    var wait = 0
+    duration = duration || timeline.duration
+    delay = delay || timeline.delay
+    when = when || 'last'
+
+    // If we have an object, unpack the values
+    if (typeof duration === 'object' && !(duration instanceof Stepper)) {
+      delay = duration.delay || delay
+      when = duration.when || when
+      swing = duration.swing || swing
+      times = duration.times || times
+      wait = duration.wait || wait
+      duration = duration.duration || timeline.duration
+    }
+
+    return {
+      duration: duration,
+      delay: delay,
+      swing: swing,
+      times: times,
+      wait: wait,
+      when: when
+    }
+  }
+
+  active (enabled) {
+    if (enabled == null) return this.enabled
+    this.enabled = enabled
+    return this
+  }
+
+  /*
+  Private Methods
+  ===============
+  Methods that shouldn't be used externally
+  */
+  addTransform (transform, index) {
+    this.transforms.lmultiplyO(transform)
+    return this
+  }
+
+  after (fn) {
+    return this.on('finished', fn)
+  }
+
+  animate (duration, delay, when) {
+    var o = Runner.sanitise(duration, delay, when)
+    var runner = new Runner(o.duration)
+    if (this._timeline) runner.timeline(this._timeline)
+    if (this._element) runner.element(this._element)
+    return runner.loop(o).schedule(o.delay, o.when)
+  }
+
+  clearTransform () {
+    this.transforms = new Matrix()
+    return this
+  }
+
+  // TODO: Keep track of all transformations so that deletion is faster
+  clearTransformsFromQueue () {
+    if (!this.done || !this._timeline || !this._timeline._runnerIds.includes(this.id)) {
+      this._queue = this._queue.filter((item) => {
+        return !item.isTransform
+      })
+    }
+  }
+
+  delay (delay) {
+    return this.animate(0, delay)
+  }
+
+  duration () {
+    return this._times * (this._wait + this._duration) - this._wait
+  }
+
+  during (fn) {
+    return this.queue(null, fn)
+  }
+
+  ease (fn) {
+    this._stepper = new Ease(fn)
+    return this
+  }
   /*
   Runner Definitions
   ==================
@@ -85,43 +172,8 @@ export default class Runner extends EventTarget {
     return this
   }
 
-  timeline (timeline) {
-    // check explicitly for undefined so we can set the timeline to null
-    if (typeof timeline === 'undefined') return this._timeline
-    this._timeline = timeline
-    return this
-  }
-
-  animate (duration, delay, when) {
-    var o = Runner.sanitise(duration, delay, when)
-    var runner = new Runner(o.duration)
-    if (this._timeline) runner.timeline(this._timeline)
-    if (this._element) runner.element(this._element)
-    return runner.loop(o).schedule(o.delay, o.when)
-  }
-
-  schedule (timeline, delay, when) {
-    // The user doesn't need to pass a timeline if we already have one
-    if (!(timeline instanceof Timeline)) {
-      when = delay
-      delay = timeline
-      timeline = this.timeline()
-    }
-
-    // If there is no timeline, yell at the user...
-    if (!timeline) {
-      throw Error('Runner cannot be scheduled without timeline')
-    }
-
-    // Schedule the runner on the timeline provided
-    timeline.schedule(this, delay, when)
-    return this
-  }
-
-  unschedule () {
-    var timeline = this.timeline()
-    timeline && timeline.unschedule(this)
-    return this
+  finish () {
+    return this.step(Infinity)
   }
 
   loop (times, swing, wait) {
@@ -141,57 +193,6 @@ export default class Runner extends EventTarget {
     if (this._times === true) { this._times = Infinity }
 
     return this
-  }
-
-  delay (delay) {
-    return this.animate(0, delay)
-  }
-
-  /*
-  Basic Functionality
-  ===================
-  These methods allow us to attach basic functions to the runner directly
-  */
-
-  queue (initFn, runFn, retargetFn, isTransform) {
-    this._queue.push({
-      initialiser: initFn || noop,
-      runner: runFn || noop,
-      retarget: retargetFn,
-      isTransform: isTransform,
-      initialised: false,
-      finished: false
-    })
-    var timeline = this.timeline()
-    timeline && this.timeline()._continue()
-    return this
-  }
-
-  during (fn) {
-    return this.queue(null, fn)
-  }
-
-  after (fn) {
-    return this.on('finished', fn)
-  }
-
-  /*
-  Runner animation methods
-  ========================
-  Control how the animation plays
-  */
-
-  time (time) {
-    if (time == null) {
-      return this._time
-    }
-    const dt = time - this._time
-    this.step(dt)
-    return this
-  }
-
-  duration () {
-    return this._times * (this._wait + this._duration) - this._wait
   }
 
   loops (p) {
@@ -264,6 +265,55 @@ export default class Runner extends EventTarget {
     return this.time(p * this.duration())
   }
 
+  /*
+  Basic Functionality
+  ===================
+  These methods allow us to attach basic functions to the runner directly
+  */
+  queue (initFn, runFn, retargetFn, isTransform) {
+    this._queue.push({
+      initialiser: initFn || noop,
+      runner: runFn || noop,
+      retarget: retargetFn,
+      isTransform: isTransform,
+      initialised: false,
+      finished: false
+    })
+    var timeline = this.timeline()
+    timeline && this.timeline()._continue()
+    return this
+  }
+
+  reset () {
+    if (this._reseted) return this
+    this.time(0)
+    this._reseted = true
+    return this
+  }
+
+  reverse (reverse) {
+    this._reverse = reverse == null ? !this._reverse : reverse
+    return this
+  }
+
+  schedule (timeline, delay, when) {
+    // The user doesn't need to pass a timeline if we already have one
+    if (!(timeline instanceof Timeline)) {
+      when = delay
+      delay = timeline
+      timeline = this.timeline()
+    }
+
+    // If there is no timeline, yell at the user...
+    if (!timeline) {
+      throw Error('Runner cannot be scheduled without timeline')
+    }
+
+    // Schedule the runner on the timeline provided
+    timeline.schedule(this, delay, when)
+    return this
+  }
+
   step (dt) {
     // If we are inactive, this stepper just gets skipped
     if (!this.enabled) return this
@@ -315,84 +365,31 @@ export default class Runner extends EventTarget {
     return this
   }
 
-  reset () {
-    if (this._reseted) return this
-    this.time(0)
-    this._reseted = true
-    return this
-  }
-
-  finish () {
-    return this.step(Infinity)
-  }
-
-  reverse (reverse) {
-    this._reverse = reverse == null ? !this._reverse : reverse
-    return this
-  }
-
-  ease (fn) {
-    this._stepper = new Ease(fn)
-    return this
-  }
-
-  active (enabled) {
-    if (enabled == null) return this.enabled
-    this.enabled = enabled
-    return this
-  }
-
   /*
-  Private Methods
-  ===============
-  Methods that shouldn't be used externally
+  Runner animation methods
+  ========================
+  Control how the animation plays
   */
-
-  // Save a morpher to the morpher list so that we can retarget it later
-  _rememberMorpher (method, morpher) {
-    this._history[method] = {
-      morpher: morpher,
-      caller: this._queue[this._queue.length - 1]
+  time (time) {
+    if (time == null) {
+      return this._time
     }
-
-    // We have to resume the timeline in case a controller
-    // is already done without beeing ever run
-    // This can happen when e.g. this is done:
-    //    anim = el.animate(new SVG.Spring)
-    // and later
-    //    anim.move(...)
-    if (this._isDeclarative) {
-      var timeline = this.timeline()
-      timeline && timeline.play()
-    }
+    const dt = time - this._time
+    this.step(dt)
+    return this
   }
 
-  // Try to set the target for a morpher if the morpher exists, otherwise
-  // do nothing and return false
-  _tryRetarget (method, target, extra) {
-    if (this._history[method]) {
-      // if the last method wasnt even initialised, throw it away
-      if (!this._history[method].caller.initialised) {
-        const index = this._queue.indexOf(this._history[method].caller)
-        this._queue.splice(index, 1)
-        return false
-      }
+  timeline (timeline) {
+    // check explicitly for undefined so we can set the timeline to null
+    if (typeof timeline === 'undefined') return this._timeline
+    this._timeline = timeline
+    return this
+  }
 
-      // for the case of transformations, we use the special retarget function
-      // which has access to the outer scope
-      if (this._history[method].caller.retarget) {
-        this._history[method].caller.retarget(target, extra)
-        // for everything else a simple morpher change is sufficient
-      } else {
-        this._history[method].morpher.to(target)
-      }
-
-      this._history[method].caller.finished = false
-      var timeline = this.timeline()
-      timeline && timeline.play()
-      return true
-    }
-    return false
+  unschedule () {
+    var timeline = this.timeline()
+    timeline && timeline.unschedule(this)
+    return this
   }
 
   // Run each initialise function in the runner if required
@@ -417,6 +414,26 @@ export default class Runner extends EventTarget {
     }
   }
 
+  // Save a morpher to the morpher list so that we can retarget it later
+  _rememberMorpher (method, morpher) {
+    this._history[method] = {
+      morpher: morpher,
+      caller: this._queue[this._queue.length - 1]
+    }
+
+    // We have to resume the timeline in case a controller
+    // is already done without beeing ever run
+    // This can happen when e.g. this is done:
+    //    anim = el.animate(new SVG.Spring)
+    // and later
+    //    anim.move(...)
+    if (this._isDeclarative) {
+      var timeline = this.timeline()
+      timeline && timeline.play()
+    }
+  }
+
+  // Try to set the target for a morpher if the morpher exists, otherwise
   // Run each run function for the position or dt given
   _run (positionOrDt) {
     // Run all of the _queue directly
@@ -436,58 +453,38 @@ export default class Runner extends EventTarget {
     return allfinished
   }
 
-  addTransform (transform, index) {
-    this.transforms.lmultiplyO(transform)
-    return this
-  }
+  // do nothing and return false
+  _tryRetarget (method, target, extra) {
+    if (this._history[method]) {
+      // if the last method wasnt even initialised, throw it away
+      if (!this._history[method].caller.initialised) {
+        const index = this._queue.indexOf(this._history[method].caller)
+        this._queue.splice(index, 1)
+        return false
+      }
 
-  clearTransform () {
-    this.transforms = new Matrix()
-    return this
-  }
+      // for the case of transformations, we use the special retarget function
+      // which has access to the outer scope
+      if (this._history[method].caller.retarget) {
+        this._history[method].caller.retarget.call(this, target, extra)
+        // for everything else a simple morpher change is sufficient
+      } else {
+        this._history[method].morpher.to(target)
+      }
 
-  // TODO: Keep track of all transformations so that deletion is faster
-  clearTransformsFromQueue () {
-    if (!this.done || !this._timeline || !this._timeline._runnerIds.includes(this.id)) {
-      this._queue = this._queue.filter((item) => {
-        return !item.isTransform
-      })
+      this._history[method].caller.finished = false
+      var timeline = this.timeline()
+      timeline && timeline.play()
+      return true
     }
+    return false
   }
 
-  static sanitise (duration, delay, when) {
-    // Initialise the default parameters
-    var times = 1
-    var swing = false
-    var wait = 0
-    duration = duration || timeline.duration
-    delay = delay || timeline.delay
-    when = when || 'last'
-
-    // If we have an object, unpack the values
-    if (typeof duration === 'object' && !(duration instanceof Stepper)) {
-      delay = duration.delay || delay
-      when = duration.when || when
-      swing = duration.swing || swing
-      times = duration.times || times
-      wait = duration.wait || wait
-      duration = duration.duration || timeline.duration
-    }
-
-    return {
-      duration: duration,
-      delay: delay,
-      swing: swing,
-      times: times,
-      wait: wait,
-      when: when
-    }
-  }
 }
 
 Runner.id = 0
 
-class FakeRunner {
+export class FakeRunner {
   constructor (transforms = new Matrix(), id = -1, done = true) {
     this.transforms = transforms
     this.id = id
@@ -527,7 +524,7 @@ function mergeTransforms () {
   }
 }
 
-class RunnerArray {
+export class RunnerArray {
   constructor () {
     this.runners = []
     this.ids = []
@@ -543,36 +540,11 @@ class RunnerArray {
     return this
   }
 
-  getByID (id) {
-    return this.runners[this.ids.indexOf(id + 1)]
-  }
-
-  remove (id) {
-    const index = this.ids.indexOf(id + 1)
-    this.ids.splice(index, 1)
-    this.runners.splice(index, 1)
-    return this
-  }
-
-  merge () {
-    let lastRunner = null
-    this.runners.forEach((runner, i) => {
-
-      const condition = lastRunner
-        && runner.done && lastRunner.done
-        // don't merge runner when persisted on timeline
-        && (!runner._timeline || !runner._timeline._runnerIds.includes(runner.id))
-        && (!lastRunner._timeline || !lastRunner._timeline._runnerIds.includes(lastRunner.id))
-
-      if (condition) {
-        // the +1 happens in the function
-        this.remove(runner.id)
-        this.edit(lastRunner.id, runner.mergeWith(lastRunner))
-      }
-
-      lastRunner = runner
-    })
-
+  clearBefore (id) {
+    const deleteCnt = this.ids.indexOf(id + 1) || 1
+    this.ids.splice(0, deleteCnt, 0)
+    this.runners.splice(0, deleteCnt, new FakeRunner())
+      .forEach((r) => r.clearTransformsFromQueue())
     return this
   }
 
@@ -583,17 +555,47 @@ class RunnerArray {
     return this
   }
 
+  getByID (id) {
+    return this.runners[this.ids.indexOf(id + 1)]
+  }
+
   length () {
     return this.ids.length
   }
 
-  clearBefore (id) {
-    const deleteCnt = this.ids.indexOf(id + 1) || 1
-    this.ids.splice(0, deleteCnt, 0)
-    this.runners.splice(0, deleteCnt, new FakeRunner())
-      .forEach((r) => r.clearTransformsFromQueue())
+  merge () {
+    let lastRunner = null
+    for (let i = 0; i < this.runners.length; ++i) {
+      const runner = this.runners[i]
+
+      const condition = lastRunner
+        && runner.done && lastRunner.done
+        // don't merge runner when persisted on timeline
+        && (!runner._timeline || !runner._timeline._runnerIds.includes(runner.id))
+        && (!lastRunner._timeline || !lastRunner._timeline._runnerIds.includes(lastRunner.id))
+
+      if (condition) {
+        // the +1 happens in the function
+        this.remove(runner.id)
+        const newRunner = runner.mergeWith(lastRunner)
+        this.edit(lastRunner.id, newRunner)
+        lastRunner = newRunner
+        --i
+      } else {
+        lastRunner = runner
+      }
+    }
+
     return this
   }
+
+  remove (id) {
+    const index = this.ids.indexOf(id + 1)
+    this.ids.splice(index, 1)
+    this.runners.splice(index, 1)
+    return this
+  }
+
 }
 
 registerMethods({
@@ -649,6 +651,9 @@ registerMethods({
   }
 })
 
+// Will output the elements from array A that are not in the array B
+const difference = (a, b) => a.filter(x => !b.includes(x))
+
 extend(Runner, {
   attr (a, v) {
     return this.styleAttr('attr', a, v)
@@ -659,29 +664,61 @@ extend(Runner, {
     return this.styleAttr('css', s, v)
   },
 
-  styleAttr (type, name, val) {
-    // apply attributes individually
-    if (typeof name === 'object') {
-      for (var key in name) {
-        this.styleAttr(type, key, name[key])
-      }
-      return this
+  styleAttr (type, nameOrAttrs, val) {
+    if (typeof nameOrAttrs === 'string') {
+      return this.styleAttr(type, { [nameOrAttrs]: val })
     }
 
-    var morpher = new Morphable(this._stepper).to(val)
+    let attrs = nameOrAttrs
+    if (this._tryRetarget(type, attrs)) return this
+
+    var morpher = new Morphable(this._stepper).to(attrs)
+    let keys = Object.keys(attrs)
 
     this.queue(function () {
-      morpher = morpher.from(this.element()[type](name))
+      morpher = morpher.from(this.element()[type](keys))
     }, function (pos) {
-      this.element()[type](name, morpher.at(pos))
+      this.element()[type](morpher.at(pos).valueOf())
       return morpher.done()
+    }, function (newToAttrs) {
+
+      // Check if any new keys were added
+      const newKeys = Object.keys(newToAttrs)
+      const differences = difference(newKeys, keys)
+
+      // If their are new keys, initialize them and add them to morpher
+      if (differences.length) {
+        // Get the values
+        const addedFromAttrs = this.element()[type](differences)
+
+        // Get the already initialized values
+        const oldFromAttrs = new ObjectBag(morpher.from()).valueOf()
+
+        // Merge old and new
+        Object.assign(oldFromAttrs, addedFromAttrs)
+        morpher.from(oldFromAttrs)
+      }
+
+      // Get the object from the morpher
+      const oldToAttrs = new ObjectBag(morpher.to()).valueOf()
+
+      // Merge in new attributes
+      Object.assign(oldToAttrs, newToAttrs)
+
+      // Change morpher target
+      morpher.to(oldToAttrs)
+
+      // Make sure that we save the work we did so we don't need it to do again
+      keys = newKeys
+      attrs = newToAttrs
     })
 
+    this._rememberMorpher(type, morpher)
     return this
   },
 
   zoom (level, point) {
-    if (this._tryRetarget('zoom', to, point)) return this
+    if (this._tryRetarget('zoom', level, point)) return this
 
     var morpher = new Morphable(this._stepper).to(new SVGNumber(level))
 
@@ -812,7 +849,7 @@ extend(Runner, {
         (newTransforms.origin || 'center').toString()
         !== (transforms.origin || 'center').toString()
       ) {
-        origin = getOrigin(transforms, element)
+        origin = getOrigin(newTransforms, element)
       }
 
       // overwrite the old transformations with the new ones

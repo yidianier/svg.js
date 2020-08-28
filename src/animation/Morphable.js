@@ -10,6 +10,34 @@ import PathArray from '../types/PathArray.js'
 import SVGArray from '../types/SVGArray.js'
 import SVGNumber from '../types/SVGNumber.js'
 
+const getClassForType = (value) => {
+  const type = typeof value
+
+  if (type === 'number') {
+    return SVGNumber
+  } else if (type === 'string') {
+    if (Color.isColor(value)) {
+      return Color
+    } else if (delimiter.test(value)) {
+      return pathLetters.test(value)
+        ? PathArray
+        : SVGArray
+    } else if (numberAndUnit.test(value)) {
+      return SVGNumber
+    } else {
+      return NonMorphable
+    }
+  } else if (morphableTypes.indexOf(value.constructor) > -1) {
+    return value.constructor
+  } else if (Array.isArray(value)) {
+    return SVGArray
+  } else if (type === 'object') {
+    return ObjectBag
+  } else {
+    return NonMorphable
+  }
+}
+
 export default class Morphable {
   constructor (stepper) {
     this._stepper = stepper || new Ease('-')
@@ -21,12 +49,37 @@ export default class Morphable {
     this._morphObj = null
   }
 
+  at (pos) {
+    var _this = this
+
+    return this._morphObj.fromArray(
+      this._from.map(function (i, index) {
+        return _this._stepper.step(i, _this._to[index], pos, _this._context[index], _this._context)
+      })
+    )
+  }
+
+  done () {
+    var complete = this._context
+      .map(this._stepper.done)
+      .reduce(function (last, curr) {
+        return last && curr
+      }, true)
+    return complete
+  }
+
   from (val) {
     if (val == null) {
       return this._from
     }
 
     this._from = this._set(val)
+    return this
+  }
+
+  stepper (stepper) {
+    if (stepper == null) return this._stepper
+    this._stepper = stepper
     return this
   }
 
@@ -52,32 +105,7 @@ export default class Morphable {
 
   _set (value) {
     if (!this._type) {
-      var type = typeof value
-
-      if (type === 'number') {
-        this.type(SVGNumber)
-      } else if (type === 'string') {
-        if (Color.isColor(value)) {
-          this.type(Color)
-        } else if (delimiter.test(value)) {
-          this.type(pathLetters.test(value)
-            ? PathArray
-            : SVGArray
-          )
-        } else if (numberAndUnit.test(value)) {
-          this.type(SVGNumber)
-        } else {
-          this.type(NonMorphable)
-        }
-      } else if (morphableTypes.indexOf(value.constructor) > -1) {
-        this.type(value.constructor)
-      } else if (Array.isArray(value)) {
-        this.type(SVGArray)
-      } else if (type === 'object') {
-        this.type(ObjectBag)
-      } else {
-        this.type(NonMorphable)
-      }
+      this.type(getClassForType(value))
     }
 
     var result = (new this._type(value))
@@ -86,6 +114,13 @@ export default class Morphable {
         : this._from ? result[this._from[4]]()
         : result
     }
+
+    if (this._type === ObjectBag) {
+      result = this._to ? result.align(this._to)
+        : this._from ? result.align(this._from)
+        : result
+    }
+
     result = result.toArray()
 
     this._morphObj = this._morphObj || new this._type()
@@ -99,30 +134,6 @@ export default class Morphable {
     return result
   }
 
-  stepper (stepper) {
-    if (stepper == null) return this._stepper
-    this._stepper = stepper
-    return this
-  }
-
-  done () {
-    var complete = this._context
-      .map(this._stepper.done)
-      .reduce(function (last, curr) {
-        return last && curr
-      }, true)
-    return complete
-  }
-
-  at (pos) {
-    var _this = this
-
-    return this._morphObj.fromArray(
-      this._from.map(function (i, index) {
-        return _this._stepper.step(i, _this._to[index], pos, _this._context[index], _this._context)
-      })
-    )
-  }
 }
 
 export class NonMorphable {
@@ -136,13 +147,14 @@ export class NonMorphable {
     return this
   }
 
+  toArray () {
+    return [ this.value ]
+  }
+
   valueOf () {
     return this.value
   }
 
-  toArray () {
-    return [ this.value ]
-  }
 }
 
 export class TransformBag {
@@ -195,16 +207,31 @@ TransformBag.defaults = {
   originY: 0
 }
 
+const sortByKey = (a, b) => {
+  return (a[0] < b[0] ? -1 : (a[0] > b[0] ? 1 : 0))
+}
+
 export class ObjectBag {
   constructor (...args) {
     this.init(...args)
+  }
+
+  align (other) {
+    for (let i = 0, il = this.values.length; i < il; ++i) {
+      if (this.values[i] === Color) {
+        const space = other[i + 6]
+        const color = new Color(this.values.splice(i + 2, 5))[space]().toArray()
+        this.values.splice(i + 2, 0, ...color)
+      }
+    }
+    return this
   }
 
   init (objOrArr) {
     this.values = []
 
     if (Array.isArray(objOrArr)) {
-      this.values = objOrArr
+      this.values = objOrArr.slice()
       return
     }
 
@@ -212,31 +239,37 @@ export class ObjectBag {
     var entries = []
 
     for (const i in objOrArr) {
-      entries.push([ i, objOrArr[i] ])
+      const Type = getClassForType(objOrArr[i])
+      const val = new Type(objOrArr[i]).toArray()
+      entries.push([ i, Type, val.length, ...val ])
     }
 
-    entries.sort((a, b) => {
-      return a[0] - b[0]
-    })
+    entries.sort(sortByKey)
 
     this.values = entries.reduce((last, curr) => last.concat(curr), [])
     return this
+  }
+
+  toArray () {
+    return this.values
   }
 
   valueOf () {
     var obj = {}
     var arr = this.values
 
-    for (var i = 0, len = arr.length; i < len; i += 2) {
-      obj[arr[i]] = arr[i + 1]
+    // for (var i = 0, len = arr.length; i < len; i += 2) {
+    while (arr.length) {
+      const key = arr.shift()
+      const Type = arr.shift()
+      const num = arr.shift()
+      const values = arr.splice(0, num)
+      obj[key] = new Type(values).valueOf()
     }
 
     return obj
   }
 
-  toArray () {
-    return this.values
-  }
 }
 
 const morphableTypes = [

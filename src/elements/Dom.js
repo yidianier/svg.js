@@ -10,14 +10,14 @@ import {
 import { find, findOne } from '../modules/core/selector.js'
 import { globals } from '../utils/window.js'
 import { map } from '../utils/utils.js'
-import { ns } from '../modules/core/namespaces.js'
+import { svg, html } from '../modules/core/namespaces.js'
 import EventTarget from '../types/EventTarget.js'
 import List from '../types/List.js'
 import attr from '../modules/core/attr.js'
 
 export default class Dom extends EventTarget {
   constructor (node, attrs) {
-    super(node)
+    super()
     this.node = node
     this.type = node.nodeName
 
@@ -30,6 +30,11 @@ export default class Dom extends EventTarget {
   add (element, i) {
     element = makeInstance(element)
 
+    // If non-root svg nodes are added we have to remove their namespaces
+    if (element.removeNamespace && this.node instanceof globals.window.SVGElement) {
+      element.removeNamespace()
+    }
+
     if (i == null) {
       this.node.appendChild(element.node)
     } else if (element.node !== this.node.childNodes[i]) {
@@ -40,8 +45,8 @@ export default class Dom extends EventTarget {
   }
 
   // Add element to given container and return self
-  addTo (parent) {
-    return makeInstance(parent).put(this)
+  addTo (parent, i) {
+    return makeInstance(parent).put(this, i)
   }
 
   // Returns all child elements
@@ -62,12 +67,12 @@ export default class Dom extends EventTarget {
   }
 
   // Clone element
-  clone () {
+  clone (deep = true) {
     // write dom data to the dom so the clone can pickup the data
     this.writeDataToDom()
 
     // clone element and assign new id
-    return assignNewId(this.node.cloneNode(true))
+    return assignNewId(this.node.cloneNode(deep))
   }
 
   // Iterates over all children and invokes a given block
@@ -86,8 +91,8 @@ export default class Dom extends EventTarget {
     return this
   }
 
-  element (nodeName) {
-    return this.put(new Dom(create(nodeName)))
+  element (nodeName, attrs) {
+    return this.put(new Dom(create(nodeName), attrs))
   }
 
   // Get first child
@@ -113,6 +118,10 @@ export default class Dom extends EventTarget {
     return this.index(element) >= 0
   }
 
+  html (htmlOrFn, outerHTML) {
+    return this.xml(htmlOrFn, outerHTML, html)
+  }
+
   // Get / set id
   id (id) {
     // generate new id if no id set
@@ -120,7 +129,7 @@ export default class Dom extends EventTarget {
       this.node.id = eid(this.type)
     }
 
-    // dont't set directly width this.node.id to make `null` work correctly
+    // dont't set directly with this.node.id to make `null` work correctly
     return this.attr('id', id)
   }
 
@@ -137,7 +146,8 @@ export default class Dom extends EventTarget {
   // matches the element vs a css selector
   matches (selector) {
     const el = this.node
-    return (el.matches || el.matchesSelector || el.msMatchesSelector || el.mozMatchesSelector || el.webkitMatchesSelector || el.oMatchesSelector).call(el, selector)
+    const matcher = el.matches || el.matchesSelector || el.msMatchesSelector || el.mozMatchesSelector || el.webkitMatchesSelector || el.oMatchesSelector || null
+    return matcher && matcher.call(el, selector)
   }
 
   // Returns the parent element instance
@@ -153,22 +163,23 @@ export default class Dom extends EventTarget {
     if (!type) return parent
 
     // loop trough ancestors if type is given
-    while (parent) {
+    do {
       if (typeof type === 'string' ? parent.matches(type) : parent instanceof type) return parent
-      if (!parent.node.parentNode || parent.node.parentNode.nodeName === '#document' || parent.node.parentNode.nodeName === '#document-fragment') return null // #759, #720
-      parent = adopt(parent.node.parentNode)
-    }
+    } while ((parent = adopt(parent.node.parentNode)))
+
+    return parent
   }
 
   // Basically does the same as `add()` but returns the added element instead
   put (element, i) {
+    element = makeInstance(element)
     this.add(element, i)
     return element
   }
 
   // Add element to given container and return container
-  putIn (parent) {
-    return makeInstance(parent).add(this)
+  putIn (parent, i) {
+    return makeInstance(parent).add(this, i)
   }
 
   // Remove element
@@ -190,27 +201,31 @@ export default class Dom extends EventTarget {
   // Replace this with element
   replace (element) {
     element = makeInstance(element)
-    this.node.parentNode.replaceChild(element.node, this.node)
+
+    if (this.node.parentNode) {
+      this.node.parentNode.replaceChild(element.node, this.node)
+    }
+
     return element
   }
 
-  round (precision = 2, map) {
+  round (precision = 2, map = null) {
     const factor = 10 ** precision
-    const attrs = this.attr()
+    const attrs = this.attr(map)
 
-    // If we have no map, build one from attrs
-    if (!map) {
-      map = Object.keys(attrs)
+    for (const i in attrs) {
+      if (typeof attrs[i] === 'number') {
+        attrs[i] = Math.round(attrs[i] * factor) / factor
+      }
     }
 
-    // Holds rounded attributes
-    const newAttrs = {}
-    map.forEach((key) => {
-      newAttrs[key] = Math.round(attrs[key] * factor) / factor
-    })
-
-    this.attr(newAttrs)
+    this.attr(attrs)
     return this
+  }
+
+  // Import / Export raw svg
+  svg (svgOrFn, outerSVG) {
+    return this.xml(svgOrFn, outerSVG, svg)
   }
 
   // Return id on string conversion
@@ -218,31 +233,59 @@ export default class Dom extends EventTarget {
     return this.id()
   }
 
-  // Import raw svg
-  svg (svgOrFn, outerHTML) {
+  words (text) {
+    // This is faster than removing all children and adding a new one
+    this.node.textContent = text
+    return this
+  }
+
+  wrap (node) {
+    const parent = this.parent()
+
+    if (!parent) {
+      return this.addTo(node)
+    }
+
+    const position = parent.index(this)
+    return parent.put(node, position).put(this)
+  }
+
+  // write svgjs data to the dom
+  writeDataToDom () {
+    // dump variables recursively
+    this.each(function () {
+      this.writeDataToDom()
+    })
+
+    return this
+  }
+
+  // Import / Export raw svg
+  xml (xmlOrFn, outerXML, ns) {
     var well, len, fragment
 
-    if (svgOrFn === false) {
-      outerHTML = false
-      svgOrFn = null
+    if (typeof xmlOrFn === 'boolean') {
+      ns = outerXML
+      outerXML = xmlOrFn
+      xmlOrFn = null
     }
 
     // act as getter if no svg string is given
-    if (svgOrFn == null || typeof svgOrFn === 'function') {
+    if (xmlOrFn == null || typeof xmlOrFn === 'function') {
       // The default for exports is, that the outerNode is included
-      outerHTML = outerHTML == null ? true : outerHTML
+      outerXML = outerXML == null ? true : outerXML
 
       // write svgjs data to the dom
       this.writeDataToDom()
       let current = this
 
       // An export modifier was passed
-      if (svgOrFn != null) {
+      if (xmlOrFn != null) {
         current = adopt(current.node.cloneNode(true))
 
         // If the user wants outerHTML we need to process this node, too
-        if (outerHTML) {
-          const result = svgOrFn(current)
+        if (outerXML) {
+          const result = xmlOrFn(current)
           current = result || current
 
           // The user does not want this node? Well, then he gets nothing
@@ -251,7 +294,7 @@ export default class Dom extends EventTarget {
 
         // Deep loop through all children and apply modifier
         current.each(function () {
-          const result = svgOrFn(this)
+          const result = xmlOrFn(this)
           const _this = result || this
 
           // If modifier returns false, discard node
@@ -266,7 +309,7 @@ export default class Dom extends EventTarget {
       }
 
       // Return outer or inner content
-      return outerHTML
+      return outerXML
         ? current.node.outerHTML
         : current.node.innerHTML
     }
@@ -274,14 +317,14 @@ export default class Dom extends EventTarget {
     // Act as setter if we got a string
 
     // The default for import is, that the current node is not replaced
-    outerHTML = outerHTML == null ? false : outerHTML
+    outerXML = outerXML == null ? false : outerXML
 
     // Create temporary holder
-    well = globals.document.createElementNS(ns, 'svg')
+    well = create('wrapper', ns)
     fragment = globals.document.createDocumentFragment()
 
     // Dump raw svg
-    well.innerHTML = svgOrFn
+    well.innerHTML = xmlOrFn
 
     // Transplant nodes into the fragment
     for (len = well.children.length; len--;) {
@@ -291,25 +334,9 @@ export default class Dom extends EventTarget {
     const parent = this.parent()
 
     // Add the whole fragment at once
-    return outerHTML
+    return outerXML
       ? this.replace(fragment) && parent
       : this.add(fragment)
-  }
-
-  words (text) {
-    // This is faster than removing all children and adding a new one
-    this.node.textContent = text
-    return this
-  }
-
-  // write svgjs data to the dom
-  writeDataToDom () {
-    // dump variables recursively
-    this.each(function () {
-      this.writeDataToDom()
-    })
-
-    return this
   }
 }
 

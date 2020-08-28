@@ -44,6 +44,62 @@ export default class Timeline extends EventTarget {
     this._stepImmediate = this._stepFn.bind(this, true)
   }
 
+  active () {
+    return !!this._nextFrame
+  }
+
+  finish () {
+    // Go to end and pause
+    this.time(this.getEndTimeOfTimeline() + 1)
+    return this.pause()
+  }
+
+  // Calculates the end of the timeline
+  getEndTime () {
+    var lastRunnerInfo = this.getLastRunnerInfo()
+    var lastDuration = lastRunnerInfo ? lastRunnerInfo.runner.duration() : 0
+    var lastStartTime = lastRunnerInfo ? lastRunnerInfo.start : this._time
+    return lastStartTime + lastDuration
+  }
+
+  getEndTimeOfTimeline () {
+    const endTimes = this._runners.map((i) => i.start + i.runner.duration())
+    return Math.max(0, ...endTimes)
+  }
+
+  getLastRunnerInfo () {
+    return this.getRunnerInfoById(this._lastRunnerId)
+  }
+
+  getRunnerInfoById (id) {
+    return this._runners[this._runnerIds.indexOf(id)] || null
+  }
+
+  pause () {
+    this._paused = true
+    return this._continue()
+  }
+
+  persist (dtOrForever) {
+    if (dtOrForever == null) return this._persist
+    this._persist = dtOrForever
+    return this
+  }
+
+  play () {
+    // Now make sure we are not paused and continue the animation
+    this._paused = false
+    return this.updateTime()._continue()
+  }
+
+  reverse (yes) {
+    var currentSpeed = this.speed()
+    if (yes == null) return this.speed(-currentSpeed)
+
+    var positive = Math.abs(currentSpeed)
+    return this.speed(yes ? -positive : positive)
+  }
+
   // schedules a runner on the timeline
   schedule (runner, delay, when) {
     if (runner == null) {
@@ -68,11 +124,15 @@ export default class Timeline extends EventTarget {
     } else if (when === 'now') {
       absoluteStartTime = this._time
     } else if (when === 'relative') {
-      const runnerInfo = this._runners[runner.id]
+      const runnerInfo = this.getRunnerInfoById(runner.id)
       if (runnerInfo) {
         absoluteStartTime = runnerInfo.start + delay
         delay = 0
       }
+    } else if (when === 'with-last') {
+      const lastRunnerInfo = this.getLastRunnerInfo()
+      const lastStartTime = lastRunnerInfo ? lastRunnerInfo.start : this._time
+      absoluteStartTime = lastStartTime
     } else {
       throw new Error('Invalid value for the "when" parameter')
     }
@@ -98,6 +158,34 @@ export default class Timeline extends EventTarget {
     return this
   }
 
+  seek (dt) {
+    return this.time(this._time + dt)
+  }
+
+  source (fn) {
+    if (fn == null) return this._timeSource
+    this._timeSource = fn
+    return this
+  }
+
+  speed (speed) {
+    if (speed == null) return this._speed
+    this._speed = speed
+    return this
+  }
+
+  stop () {
+    // Go to start and pause
+    this.time(0)
+    return this.pause()
+  }
+
+  time (time) {
+    if (time == null) return this._time
+    this._time = time
+    return this._continue(true)
+  }
+
   // Remove the runner from this timeline
   unschedule (runner) {
     var index = this._runnerIds.indexOf(runner.id)
@@ -110,28 +198,6 @@ export default class Timeline extends EventTarget {
     return this
   }
 
-  // Calculates the end of the timeline
-  getEndTime () {
-    var lastRunnerInfo = this._runners[this._runnerIds.indexOf(this._lastRunnerId)]
-    var lastDuration = lastRunnerInfo ? lastRunnerInfo.runner.duration() : 0
-    var lastStartTime = lastRunnerInfo ? lastRunnerInfo.start : 0
-    return lastStartTime + lastDuration
-  }
-
-  getEndTimeOfTimeline () {
-    let lastEndTime = 0
-    for (var i = 0; i < this._runners.length; i++) {
-      const runnerInfo = this._runners[i]
-      var duration = runnerInfo ? runnerInfo.runner.duration() : 0
-      var startTime = runnerInfo ? runnerInfo.start : 0
-      const endTime = startTime + duration
-      if (endTime > lastEndTime) {
-        lastEndTime = endTime
-      }
-    }
-    return lastEndTime
-  }
-
   // Makes sure, that after pausing the time doesn't jump
   updateTime () {
     if (!this.active()) {
@@ -140,62 +206,15 @@ export default class Timeline extends EventTarget {
     return this
   }
 
-  play () {
-    // Now make sure we are not paused and continue the animation
-    this._paused = false
-    return this.updateTime()._continue()
-  }
+  // Checks if we are running and continues the animation
+  _continue (immediateStep = false) {
+    Animator.cancelFrame(this._nextFrame)
+    this._nextFrame = null
 
-  pause () {
-    this._paused = true
-    return this._continue()
-  }
+    if (immediateStep) return this._stepImmediate()
+    if (this._paused) return this
 
-  stop () {
-    // Go to start and pause
-    this.time(0)
-    return this.pause()
-  }
-
-  finish () {
-    // Go to end and pause
-    this.time(this.getEndTimeOfTimeline() + 1)
-    return this.pause()
-  }
-
-  speed (speed) {
-    if (speed == null) return this._speed
-    this._speed = speed
-    return this
-  }
-
-  reverse (yes) {
-    var currentSpeed = this.speed()
-    if (yes == null) return this.speed(-currentSpeed)
-
-    var positive = Math.abs(currentSpeed)
-    return this.speed(yes ? positive : -positive)
-  }
-
-  seek (dt) {
-    return this.time(this._time + dt)
-  }
-
-  time (time) {
-    if (time == null) return this._time
-    this._time = time
-    return this._continue(true)
-  }
-
-  persist (dtOrForever) {
-    if (dtOrForever == null) return this._persist
-    this._persist = dtOrForever
-    return this
-  }
-
-  source (fn) {
-    if (fn == null) return this._timeSource
-    this._timeSource = fn
+    this._nextFrame = Animator.frame(this._step)
     return this
   }
 
@@ -300,21 +319,6 @@ export default class Timeline extends EventTarget {
     return this
   }
 
-  // Checks if we are running and continues the animation
-  _continue (immediateStep = false) {
-    Animator.cancelFrame(this._nextFrame)
-    this._nextFrame = null
-
-    if (immediateStep) return this._stepImmediate()
-    if (this._paused) return this
-
-    this._nextFrame = Animator.frame(this._step)
-    return this
-  }
-
-  active () {
-    return !!this._nextFrame
-  }
 }
 
 registerMethods({

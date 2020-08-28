@@ -1,6 +1,6 @@
 import { addMethodNames } from './methods.js'
 import { capitalize } from './utils.js'
-import { ns } from '../modules/core/namespaces.js'
+import { svg } from '../modules/core/namespaces.js'
 import { globals } from '../utils/window.js'
 import Base from '../types/Base.js'
 
@@ -8,12 +8,12 @@ const elements = {}
 export const root = '___SYMBOL___ROOT___'
 
 // Method for element creation
-export function create (name) {
+export function create (name, ns = svg) {
   // create element
   return globals.document.createElementNS(ns, name)
 }
 
-export function makeInstance (element) {
+export function makeInstance (element, isHTML = false) {
   if (element instanceof Base) return element
 
   if (typeof element === 'object') {
@@ -28,13 +28,16 @@ export function makeInstance (element) {
     return adopter(globals.document.querySelector(element))
   }
 
-  var node = create('svg')
-  node.innerHTML = element
+  // Make sure, that HTML elements are created with the correct namespace
+  var wrapper = isHTML ? globals.document.createElement('div') : create('svg')
+  wrapper.innerHTML = element
 
   // We can use firstChild here because we know,
   // that the first char is < and thus an element
-  element = adopter(node.firstChild)
+  element = adopter(wrapper.firstChild)
 
+  // make sure, that element doesnt have its wrapper attached
+  wrapper.removeChild(wrapper.firstChild)
   return element
 }
 
@@ -49,6 +52,10 @@ export function adopt (node) {
 
   // make sure a node isn't already adopted
   if (node.instance instanceof Base) return node.instance
+
+  if (node.nodeName === '#document-fragment') {
+    return new elements.Fragment(node)
+  }
 
   // initialize variables
   var className = capitalize(node.nodeName || 'Dom')
@@ -107,25 +114,17 @@ export function assignNewId (node) {
 }
 
 // Method for extending objects
-export function extend (modules, methods, attrCheck) {
+export function extend (modules, methods) {
   var key, i
 
   modules = Array.isArray(modules) ? modules : [ modules ]
 
   for (i = modules.length - 1; i >= 0; i--) {
     for (key in methods) {
-      let method = methods[key]
-      if (attrCheck) {
-        method = wrapWithAttrCheck(methods[key])
-      }
-      modules[i].prototype[key] = method
+      modules[i].prototype[key] = methods[key]
     }
   }
 }
-
-// export function extendWithAttrCheck (...args) {
-//   extend(...args, true)
-// }
 
 export function wrapWithAttrCheck (fn) {
   return function (...args) {
@@ -137,28 +136,4 @@ export function wrapWithAttrCheck (fn) {
       return fn.apply(this, args)
     }
   }
-}
-
-export function invent (config) {
-  // Create element initializer
-  var initializer = typeof config.create === 'function'
-    ? config.create
-    : function (node) {
-      this.constructor(node || create(config.create))
-    }
-
-  // Inherit prototype
-  if (config.inherit) {
-    /* eslint new-cap: off */
-    initializer.prototype = new config.inherit()
-    initializer.prototype.constructor = initializer
-  }
-
-  // Extend with methods
-  if (config.extend) { extend(initializer, config.extend) }
-
-  // Attach construct method to parent
-  if (config.construct) { extend(config.parent || elements.Container, config.construct) }
-
-  return initializer
 }

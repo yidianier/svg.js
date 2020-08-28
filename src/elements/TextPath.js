@@ -8,8 +8,8 @@ import baseFind from '../modules/core/selector.js'
 
 export default class TextPath extends Text {
   // Initialize node
-  constructor (node) {
-    super(nodeOrNew('textPath', node), node)
+  constructor (node, attrs = node) {
+    super(nodeOrNew('textPath', node), attrs)
   }
 
   // return the array of the path track element
@@ -92,7 +92,12 @@ registerMethods({
     }),
 
     targets () {
-      return baseFind('svg [href*="' + this.id() + '"]')
+      return baseFind('svg textPath').filter((node) => {
+        return (node.attr('href') || '').includes(this.id())
+      })
+
+      // Does not work in IE11. Use when IE support is dropped
+      // return baseFind('svg textPath[*|href*="' + this.id() + '"]')
     }
   }
 })

@@ -1,7 +1,10 @@
-import { buildCanvas, buildFixtures, clear } from './helpers.js'
+/* globals beforeEach, afterEach, jasmine */
+import { buildCanvas, clear } from './helpers.js'
+
+jasmine.DEFAULT_TIMEOUT_INTERVAL = 500
 
 beforeEach(() => {
-  //buildFixtures()
+  // buildFixtures()
   buildCanvas()
   window.container = document.getElementById('canvas')
 })

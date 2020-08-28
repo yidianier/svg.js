@@ -12,8 +12,8 @@ import * as pointed from '../modules/core/pointed.js'
 
 export default class Line extends Shape {
   // Initialize node
-  constructor (node) {
-    super(nodeOrNew('line', node), node)
+  constructor (node, attrs = node) {
+    super(nodeOrNew('line', node), attrs)
   }
 
   // Get array
@@ -24,22 +24,22 @@ export default class Line extends Shape {
     ])
   }
 
+  // Move by left top corner
+  move (x, y) {
+    return this.attr(this.array().move(x, y).toLine())
+  }
+
   // Overwrite native plot() method
   plot (x1, y1, x2, y2) {
     if (x1 == null) {
       return this.array()
     } else if (typeof y1 !== 'undefined') {
-      x1 = { x1: x1, y1: y1, x2: x2, y2: y2 }
+      x1 = { x1, y1, x2, y2 }
     } else {
       x1 = new PointArray(x1).toLine()
     }
 
     return this.attr(x1)
-  }
-
-  // Move by left top corner
-  move (x, y) {
-    return this.attr(this.array().move(x, y).toLine())
   }
 
   // Set element size to given width and height
